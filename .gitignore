@@ -1,8 +1,8 @@
+.env
 .venv/
 __pycache__/
-.env
-data/
-documents/
-chroma_store/
-*.db
 *.pyc
+rag.db
+chroma_store/
+eval_report.csv
+data/

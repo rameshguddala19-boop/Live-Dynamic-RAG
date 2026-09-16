@@ -178,7 +178,7 @@ def ingest_pdf(pdf_path: str) -> int:
 
 if __name__ == "__main__":
 
-    pdf = "../data/Employee_Details_100_1.pdf"
+    pdf = "data/Employee_Details_100_1.pdf"
 
     if not Path(pdf).exists():
         raise SystemExit(
