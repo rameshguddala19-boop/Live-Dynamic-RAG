@@ -51,31 +51,55 @@ VALID_STRATEGIES = [
 # =========================================================
 
 ROUTER_SYSTEM = """
-You route employee-database questions to ONE strategy.
+You route questions between an employee database and an active
+uploaded PDF document.
+
+The application has two main knowledge sources:
+
+1. Employee database
+2. Active uploaded PDF
+
+IMPORTANT:
+If the question is about information that may come from the
+uploaded document, use hybrid_retrieval.
+
+Do NOT use exact_lookup merely because the question contains
+an employee ID, employee name, or person name.
+
+Use exact_lookup only when the question clearly asks for an
+attribute of a person that belongs to the employee database.
 
 Strategies:
 
 1. structured_filter
-   Use for list/show employees matching conditions.
+   Use for employee database list/show questions with
+   structured conditions.
 
    Example:
    "List Engineering employees on leave"
 
 2. aggregation
-   Use for COUNT / AVERAGE / SUM / MIN / MAX.
+   Use for employee database COUNT / AVERAGE / SUM / MIN / MAX.
 
    Example:
    "How many employees are on leave?"
 
 3. exact_lookup
-   Use for one specific person's attribute.
+   Use only for one specific person's employee-database
+   attribute.
 
    Example:
    "What is Sneha Malhotra's salary?"
 
 4. hybrid_retrieval
-   Use for open-ended, comparative, or narrative questions
-   where there is no clean structured filter.
+   Use for:
+   - uploaded PDF questions
+   - document questions
+   - QA/testing concepts
+   - open-ended questions
+   - comparative questions
+   - narrative questions
+   - questions whose answer may exist in the active document
 
 5. live_lookup
    Use for real-time external data.
@@ -118,13 +142,15 @@ STATUS RULES
 
 For employee status:
 
-- "On Leave"
-  field = "status"
-  value = "On Leave"
+"On Leave"
 
-- "Active"
-  field = "status"
-  value = "Active"
+field = "status"
+value = "On Leave"
+
+"Active"
+
+field = "status"
+value = "Active"
 
 Example:
 
@@ -537,7 +563,7 @@ def exact_name_lookup(
     Deterministically find employee names
     mentioned in the question.
 
-    This avoids counting all 100 rows when
+    This avoids counting all rows when
     the router returns exact_lookup without groups.
     """
 
@@ -596,6 +622,7 @@ def extract_person_name(
     """
 
     patterns = [
+
         r"(?:what is|what's|tell me|show me|get)\s+(.+?)['’]s\s+"
         r"(?:salary|manager|department|position|location|status|email|phone)",
 
@@ -1025,6 +1052,53 @@ def exact_lookup_answer(
 
 
 # =========================================================
+# PDF FALLBACK RETRIEVAL
+# =========================================================
+
+def pdf_fallback_answer(
+    question: str
+) -> dict:
+    """
+    Search the currently indexed PDF.
+
+    This is used when the router chooses exact_lookup
+    but the employee database has no matching record.
+    """
+
+    hits = hybrid_search(
+        question
+    )
+
+    context = "\n".join(
+        hit["text"]
+        for hit in hits
+    )
+
+    if not context:
+
+        return {
+            "strategy": "hybrid_retrieval",
+            "answer": (
+                "I don't have enough information."
+            ),
+            "record_count": 0,
+            "sources": [],
+            "filters": []
+        }
+
+    return {
+        "strategy": "hybrid_retrieval",
+        "answer": generate_answer(
+            question,
+            context
+        ),
+        "record_count": None,
+        "sources": hits,
+        "filters": []
+    }
+
+
+# =========================================================
 # MAIN QUERY FUNCTION
 # =========================================================
 
@@ -1096,7 +1170,23 @@ def query_document(
 
     if strategy == "exact_lookup":
 
-        return exact_lookup_answer(
+        employee_result = exact_lookup_answer(
+            question
+        )
+
+        # Employee DB has the requested record.
+        if employee_result["record_count"] > 0:
+
+            return employee_result
+
+        # No employee record found.
+        # Search the active uploaded PDF instead.
+        log.info(
+            "Exact lookup returned no employee record; "
+            "falling back to PDF hybrid retrieval."
+        )
+
+        return pdf_fallback_answer(
             question
         )
 
